@@ -6,7 +6,7 @@ import { TWEEN } from "../lib/tween.module.min.js";
 import { GUI } from "../lib/lil-gui.module.min.js";
 
 // Variables de consenso
-let renderer, scene, camera, controls, spaceship, ground, video;
+let renderer, scene, camera, controls, spaceship, ground, video, asteroids;
 
 // Acciones
 init();
@@ -54,30 +54,42 @@ function init() {
 }
 
 function loadScene() {
-    const materialLambert = new THREE.MeshLambertMaterial({ color: 0xff0000 });
-    const materialPhong = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
-    const materialBasic = new THREE.MeshBasicMaterial({ color: 0x0000ff });
 
     // Construir un suelo en el plano XZ
     const groundGeometry = new THREE.PlaneGeometry(10, 10);
-    ground = new THREE.Mesh(groundGeometry, materialBasic);
+    ground = new THREE.Mesh(groundGeometry, new THREE.MeshBasicMaterial({ color: 0x0000ff }));
     ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true; // Permitir que el suelo reciba sombras
+    ground.position.y = -0.5;
+    ground.receiveShadow = true;
     scene.add(ground);
 
-    // Construir una escena con 5 figuras diferentes posicionadas en los cinco vértices de un pentágono regular alrededor del origen
-    const geometry = new THREE.BoxGeometry();
-    for (let i = 0; i < 5; i++) {
-        let material;
-        if (i === 0) material = materialLambert;
-        else if (i === 1) material = materialPhong;
-        else material = materialBasic;
+    // Definir geometrías de asteroides
+    const asteroidGeometries = [
+        new THREE.SphereGeometry(0.5, 32, 32),
+        new THREE.TetrahedronBufferGeometry(0.5),
+        new THREE.DodecahedronGeometry(0.5)
+    ];
 
-        const cube = new THREE.Mesh(geometry, material);
-        cube.position.x = Math.cos((i / 5) * Math.PI * 2) * 3;
-        cube.position.z = Math.sin((i / 5) * Math.PI * 2) * 3;
-        cube.castShadow = true; // Permitir que los cubos emitan sombras
-        scene.add(cube);
+    // Cargar texturas para los asteroides
+    const asteroidTexture = new THREE.TextureLoader().load('images/metal_128.jpg');
+
+    // Definir materiales para los asteroides
+    const asteroidMaterials = [
+        new THREE.MeshLambertMaterial({ map: asteroidTexture }), // Para Lambert, utiliza map para aplicar la textura
+        new THREE.MeshPhongMaterial({ map: asteroidTexture }) // Para Phong, también utiliza map para aplicar la textura
+    ];
+
+    // Construir asteroides
+    asteroids = [];
+    for (let i = 0; i < 5; i++) {
+        const asteroidGeometry = asteroidGeometries[i % asteroidGeometries.length];
+        const asteroidMaterial = asteroidMaterials[i % asteroidMaterials.length];
+
+        const asteroid = new THREE.Mesh(asteroidGeometry, asteroidMaterial);
+        asteroid.position.x = Math.cos((i / 5) * Math.PI * 2) * 3;
+        asteroid.position.z = Math.sin((i / 5) * Math.PI * 2) * 3;
+        scene.add(asteroid);
+        asteroids.push(asteroid);
     }
 
     // Añadir a la escena un modelo importado en el centro del pentágono
@@ -92,22 +104,17 @@ function loadScene() {
     });
 
     // Texturas
-    const overlayTexture = new THREE.TextureLoader().load('images/Earth.jpg');
-    const environmentTexture = new THREE.TextureLoader().load('images/Earth.jpg');
-
-    // Materiales
-    const materialOverlay = new THREE.MeshBasicMaterial({ map: overlayTexture });
-    const materialEnvironment = new THREE.MeshBasicMaterial({ map: environmentTexture });
+    const environmentTexture = new THREE.TextureLoader().load('images/space.jpg');
 
     // Habitación de entorno
-    const roomGeometry = new THREE.BoxGeometry(10, 10, 10);
+    const roomGeometry = new THREE.SphereGeometry(100, 10, 10);
     const roomMaterial = new THREE.MeshBasicMaterial({ map: environmentTexture, side: THREE.BackSide });
     const room = new THREE.Mesh(roomGeometry, roomMaterial);
     scene.add(room);
 
     // Textura de video
     video = document.createElement('video');
-    video.src = 'videos/Pixar.mp4';
+    video.src = 'videos/star_wars.mp4';
     video.loop = true;
     video.muted = true;
     video.play();
@@ -151,7 +158,6 @@ function loadGUI() {
     gui.add(ground.material, 'wireframe').name('Alámbrico/Sólido');
 
     // Checkbox de sombras
-    // Checkbox de sombras
     gui.add({ shadowEnabled: true }, 'shadowEnabled').name('Sombras').onChange(function (value) {
         // Habilitar/deshabilitar sombras en las luces
         scene.traverse(function (node) {
@@ -161,12 +167,6 @@ function loadGUI() {
                 }
             }
         });
-    });
-
-
-    // Selector de color para cambio de algún material
-    gui.addColor({ color: 0xff0000 }, 'color').name('Color').onChange(function (value) {
-        materialLambert.color.set(value);
     });
 
     // Boton de play/pause y checkbox de mute
@@ -185,7 +185,13 @@ function render(delta) {
     update(delta);
     renderer.render(scene, camera);
     controls.update();
+    asteroids.forEach(asteroid => {
+        asteroid.rotation.x += 0.4;
+        asteroid.position.z += Math.sin(Date.now() * 0.005) * 0.5;
+        asteroid.position.x += Math.cos(Date.now() * 0.005) * 0.5;
+    });
 }
+
 
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
