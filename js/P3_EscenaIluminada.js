@@ -7,7 +7,11 @@ import { GUI } from "../lib/lil-gui.module.min.js";
 
 // Variables de consenso
 let renderer, scene, camera, controls, spaceship, ground, video, asteroids;
-
+let moveLeft = false;
+let moveRight = false;
+let distantAsteroids = [];
+const numDistantAsteroids = 20;
+const maxZ = 50;
 // Acciones
 init();
 loadScene();
@@ -51,7 +55,71 @@ function init() {
     focalLight.position.set(0, 3, 0);
     focalLight.castShadow = true; // Habilitar sombras
     scene.add(focalLight);
+
+    // Event listeners para las teclas izquierda y derecha
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keyup', onKeyUp);
 }
+
+// Función para verificar la colisión entre la nave y los asteroides
+function checkCollisionWithAsteroids(spaceship, asteroids) {
+    // Verificar si la nave y los asteroides son instancias de THREE.Mesh
+    if (!(spaceship instanceof THREE.Mesh) || !Array.isArray(asteroids)) {
+        console.error("La nave o los asteroides no son instancias válidas de THREE.Mesh.");
+        return false;
+    }
+
+    // Verificar si la nave tiene geometría definida
+    if (!spaceship.geometry) {
+        console.error("La nave no tiene una geometría definida.");
+        return false;
+    }
+
+    // Iterar sobre los asteroides y verificar la colisión con la nave
+    for (const asteroid of asteroids) {
+        // Verificar si el asteroide es una instancia de THREE.Mesh y tiene geometría definida
+        if (asteroid instanceof THREE.Mesh && asteroid.geometry) {
+            const distance = spaceship.position.distanceTo(asteroid.position);
+            const minDistance = spaceship.geometry.boundingSphere.radius + asteroid.geometry.boundingSphere.radius;
+            if (distance < minDistance) {
+                // Colisión detectada
+                return true;
+            }
+        } else {
+            console.error("El asteroide no es una instancia válida de THREE.Mesh o no tiene geometría definida.");
+        }
+    }
+
+    // No se detectó ninguna colisión con los asteroides
+    return false;
+}
+
+
+
+
+// Event listeners para las teclas izquierda y derecha
+function onKeyDown(event) {
+    switch (event.key) {
+        case 'ArrowLeft':
+            moveLeft = true;
+            break;
+        case 'ArrowRight':
+            moveRight = true;
+            break;
+    }
+}
+
+function onKeyUp(event) {
+    switch (event.key) {
+        case 'ArrowLeft':
+            moveLeft = false;
+            break;
+        case 'ArrowRight':
+            moveRight = false;
+            break;
+    }
+}
+
 
 function loadScene() {
 
@@ -90,6 +158,18 @@ function loadScene() {
         asteroid.position.z = Math.sin((i / 5) * Math.PI * 2) * 3;
         scene.add(asteroid);
         asteroids.push(asteroid);
+    }
+
+    for (let i = 0; i < numDistantAsteroids; i++) {
+        const asteroidGeometry = asteroidGeometries[i % asteroidGeometries.length];
+        const asteroidMaterial = asteroidMaterials[i % asteroidMaterials.length];
+
+        const asteroid = new THREE.Mesh(asteroidGeometry, asteroidMaterial);
+        asteroid.position.x = Math.random() * 10 - 5; // Posición aleatoria en el rango de -5 a 5 en el eje x
+        asteroid.position.y = Math.random() * 2; // Posición aleatoria en el rango de 0 a 2 en el eje y
+        asteroid.position.z = -(Math.random() * maxZ); // Posición aleatoria en el rango de -maxZ a 0 en el eje z
+        scene.add(asteroid);
+        distantAsteroids.push(asteroid);
     }
 
     // Añadir a la escena un modelo importado en el centro del pentágono
@@ -178,19 +258,118 @@ function loadGUI() {
 
 function update(delta) {
     TWEEN.update();
+
+    // Actualizar la posición y la rotación de la nave según las teclas presionadas
+    const movementSpeed = 0.1;
+
+    // Inicializar la rotación de la nave
+    let targetRotation = 0;
+
+    if (moveLeft) {
+        // Mover la nave hacia la izquierda y rotar hacia la izquierda
+        spaceship.position.x -= movementSpeed;
+        targetRotation = Math.PI / 4; // Angulo de inclinación hacia la izquierda
+    }
+
+    if (moveRight) {
+        // Mover la nave hacia la derecha y rotar hacia la derecha
+        spaceship.position.x += movementSpeed;
+        targetRotation = -Math.PI / 4; // Angulo de inclinación hacia la derecha
+    }
+
+    // Interpolar la rotación actual de la nave hacia la rotación objetivo
+    spaceship.rotation.y = THREE.MathUtils.lerp(spaceship.rotation.y, targetRotation, 0.1);
+
+    // Verificar colisiones con los asteroides lejanos
+    distantAsteroids.forEach(asteroid => {
+        asteroid.position.z += 0.05; // Avance constante hacia la coordenada 0 en el eje z
+
+        // Verificar colisión con la nave
+        if (checkCollisionWithAsteroids(spaceship, asteroid)) {
+            // Mostrar explosión
+            showExplosion(spaceship.position.clone());
+
+            // Remover asteroide
+            scene.remove(asteroid);
+            distantAsteroids.splice(distantAsteroids.indexOf(asteroid), 1);
+        }
+
+        // Eliminar asteroides que hayan pasado más allá de la coordenada 0
+        if (asteroid.position.z > 10) {
+            scene.remove(asteroid);
+            distantAsteroids.splice(distantAsteroids.indexOf(asteroid), 1);
+        }
+    });
 }
+
+// Función para mostrar una explosión en una posición específica
+function showExplosion(position) {
+    console.log("Explosión en", position);
+    // Configurar la geometría y el material de las partículas de la explosión
+    const geometry = new THREE.BufferGeometry();
+    const vertices = [];
+    const particleCount = 100; // Número de partículas en la explosión
+
+    for (let i = 0; i < particleCount; i++) {
+        const x = Math.random() * 0.5 - 0.25;
+        const y = Math.random() * 0.5 - 0.25;
+        const z = Math.random() * 0.5 - 0.25;
+
+        vertices.push(x, y, z);
+    }
+
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+
+    const material = new THREE.PointsMaterial({
+        size: 0.1,
+        color: 0xff0000 // Color de las partículas de la explosión
+    });
+
+    // Crear el objeto de partículas y añadirlo a la escena
+    const explosion = new THREE.Points(geometry, material);
+    explosion.position.copy(position);
+    scene.add(explosion);
+
+    // Eliminar las partículas después de un tiempo
+    setTimeout(() => {
+        scene.remove(explosion);
+    }, 1000); // Cambia el tiempo de acuerdo a la duración deseada de la explosión
+}
+
+
+
 
 function render(delta) {
     requestAnimationFrame(render);
     update(delta);
     renderer.render(scene, camera);
     controls.update();
-    asteroids.forEach(asteroid => {
-        asteroid.rotation.x += 0.4;
-        asteroid.position.z += Math.sin(Date.now() * 0.005) * 0.5;
-        asteroid.position.x += Math.cos(Date.now() * 0.005) * 0.5;
-    });
+
+    // Verificar si spaceship está definido antes de continuar
+    if (spaceship) {
+        asteroids.forEach(asteroid => {
+            // Calcula la posición relativa de los asteroides respecto a la nave
+            const relativePosition = new THREE.Vector3();
+            relativePosition.copy(asteroid.position).sub(spaceship.position);
+
+            // Calcula el ángulo de rotación alrededor de la nave
+            const angle = 0.01;
+
+            // Aplica una rotación a la posición relativa
+            relativePosition.applyAxisAngle(new THREE.Vector3(0, 1, 0), angle);
+
+            // Actualiza la posición del asteroide
+            asteroid.position.copy(relativePosition).add(spaceship.position);
+
+            // Rota el asteroide alrededor de su propio eje
+            asteroid.rotation.x += 0.04;
+            asteroid.rotation.y += 0.03;
+            asteroid.rotation.z += 0.02;
+        });
+    }
+    renderer.render(scene, camera);
 }
+
 
 
 function onWindowResize() {
