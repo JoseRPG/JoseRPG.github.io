@@ -6,12 +6,16 @@ import { TWEEN } from "../lib/tween.module.min.js";
 import { GUI } from "../lib/lil-gui.module.min.js";
 
 // Variables de consenso
-let renderer, scene, camera, controls, spaceship, ground, video, asteroids;
+let renderer, scene, camera, controls, selectedSpaceship, spaceship, spaceships, ground, video, room;
 let moveLeft = false;
 let moveRight = false;
-let distantAsteroids = [];
-const numDistantAsteroids = 20;
+let asteroids = [];
+let isAnimating = false;
+let isExplosion = false;
+let isSelection = false;
+const numAsteroids = 40;
 const maxZ = 50;
+let lifes = 3;
 // Acciones
 init();
 loadScene();
@@ -29,10 +33,11 @@ function init() {
 
     // Escena
     scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x000000, 0.01);
 
     // Camara
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0.5, 2, 7);
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight);
+    camera.position.set(0, 2, 7);
     camera.lookAt(new THREE.Vector3(0, 1, 0));
 
     // Agrega los controles de la cámara
@@ -43,59 +48,20 @@ function init() {
     window.addEventListener('resize', onWindowResize);
 
     // Luces
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-    scene.add(ambientLight);
-
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
     directionalLight.position.set(0, 1, 0);
-    directionalLight.castShadow = true; // Habilitar sombras
+    directionalLight.castShadow = true;
     scene.add(directionalLight);
 
-    const focalLight = new THREE.SpotLight(0xffffff, 1);
-    focalLight.position.set(0, 3, 0);
-    focalLight.castShadow = true; // Habilitar sombras
-    scene.add(focalLight);
+    const pointLight = new THREE.PointLight(0xffffff, 3, 3);
+    pointLight.position.set(0, 2.6, 2);
+    pointLight.castShadow = true;
+    scene.add(pointLight);
 
     // Event listeners para las teclas izquierda y derecha
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('keyup', onKeyUp);
 }
-
-// Función para verificar la colisión entre la nave y los asteroides
-function checkCollisionWithAsteroids(spaceship, asteroids) {
-    // Verificar si la nave y los asteroides son instancias de THREE.Mesh
-    if (!(spaceship instanceof THREE.Mesh) || !Array.isArray(asteroids)) {
-        console.error("La nave o los asteroides no son instancias válidas de THREE.Mesh.");
-        return false;
-    }
-
-    // Verificar si la nave tiene geometría definida
-    if (!spaceship.geometry) {
-        console.error("La nave no tiene una geometría definida.");
-        return false;
-    }
-
-    // Iterar sobre los asteroides y verificar la colisión con la nave
-    for (const asteroid of asteroids) {
-        // Verificar si el asteroide es una instancia de THREE.Mesh y tiene geometría definida
-        if (asteroid instanceof THREE.Mesh && asteroid.geometry) {
-            const distance = spaceship.position.distanceTo(asteroid.position);
-            const minDistance = spaceship.geometry.boundingSphere.radius + asteroid.geometry.boundingSphere.radius;
-            if (distance < minDistance) {
-                // Colisión detectada
-                return true;
-            }
-        } else {
-            console.error("El asteroide no es una instancia válida de THREE.Mesh o no tiene geometría definida.");
-        }
-    }
-
-    // No se detectó ninguna colisión con los asteroides
-    return false;
-}
-
-
-
 
 // Event listeners para las teclas izquierda y derecha
 function onKeyDown(event) {
@@ -120,9 +86,65 @@ function onKeyUp(event) {
     }
 }
 
+function selectNextShip() {
+    if(isAnimating) return;
+    // Guardar la posición de la última nave
+    const initialPosition = {
+        x: spaceships[5].position.x,
+        z: spaceships[5].position.z
+    };
+
+    // Animar el deslizamiento de las naves
+    for (let i = 5; i > 0; i--) {
+        const nextPosition = {
+            x: spaceships[i - 1].position.x,
+            z: spaceships[i - 1].position.z
+        };
+        animateShip(spaceships[i], nextPosition);
+    }
+    // Mover la primera nave a la posición guardada
+    animateShip(spaceships[0], initialPosition);
+
+    selectedSpaceship > 4 ? selectedSpaceship = 0 : selectedSpaceship++;
+}
+
+function selectPreviousShip() {
+    if(isAnimating) return;
+    // Guardar la posición de la primera nave
+    const initialPosition = {
+        x: spaceships[0].position.x,
+        z: spaceships[0].position.z
+    };
+
+    // Animar el deslizamiento de las naves
+    for (let i = 0; i < 5; i++) {
+        const nextPosition = {
+            x: spaceships[i + 1].position.x,
+            z: spaceships[i + 1].position.z
+        };
+        animateShip(spaceships[i], nextPosition);
+    }
+    // Mover la última nave a la posición guardada
+    animateShip(spaceships[5], initialPosition);
+
+    selectedSpaceship < 1 ? selectedSpaceship = 5 : selectedSpaceship--;
+}
+
+// Función para animar el desplazamiento de una nave a una nueva posición
+function animateShip(ship, newPosition) {
+    new TWEEN.Tween(ship.position)
+        .to(newPosition, 700)
+        .easing(TWEEN.Easing.Quadratic.InOut)
+        .onStart(function () {
+            isAnimating = true;
+        })
+        .onComplete(function () {
+            isAnimating = false;
+        })
+        .start();
+}
 
 function loadScene() {
-
     // Construir un suelo en el plano XZ
     const groundGeometry = new THREE.PlaneGeometry(10, 10);
     ground = new THREE.Mesh(groundGeometry, new THREE.MeshBasicMaterial({ color: 0x0000ff }));
@@ -138,58 +160,57 @@ function loadScene() {
         new THREE.DodecahedronGeometry(0.5)
     ];
 
-    // Cargar texturas para los asteroides
-    const asteroidTexture = new THREE.TextureLoader().load('images/metal_128.jpg');
-
-    // Definir materiales para los asteroides
-    const asteroidMaterials = [
-        new THREE.MeshLambertMaterial({ map: asteroidTexture }), // Para Lambert, utiliza map para aplicar la textura
-        new THREE.MeshPhongMaterial({ map: asteroidTexture }) // Para Phong, también utiliza map para aplicar la textura
-    ];
-
-    // Construir asteroides
-    asteroids = [];
-    for (let i = 0; i < 5; i++) {
+    const asteroidMaterial = new THREE.MeshLambertMaterial({ map: new THREE.TextureLoader().load('images/asteroid.jpg') });
+    
+    for (let i = 0; i < numAsteroids; i++) {
         const asteroidGeometry = asteroidGeometries[i % asteroidGeometries.length];
-        const asteroidMaterial = asteroidMaterials[i % asteroidMaterials.length];
-
         const asteroid = new THREE.Mesh(asteroidGeometry, asteroidMaterial);
-        asteroid.position.x = Math.cos((i / 5) * Math.PI * 2) * 3;
-        asteroid.position.z = Math.sin((i / 5) * Math.PI * 2) * 3;
+        asteroid.position.x = Math.random() * 10 - 5; // Posición aleatoria en el rango de -5 a 5 en el eje x
+        asteroid.position.y = Math.random() + 0.5; // Posición aleatoria en el rango de 0.5 a 1.5 en el eje y
+        asteroid.position.z = -(Math.random() * maxZ + 5); // Posición aleatoria en el rango de -maxZ a 0 en el eje z
         scene.add(asteroid);
         asteroids.push(asteroid);
     }
 
-    for (let i = 0; i < numDistantAsteroids; i++) {
-        const asteroidGeometry = asteroidGeometries[i % asteroidGeometries.length];
-        const asteroidMaterial = asteroidMaterials[i % asteroidMaterials.length];
+    // Añadir a la escena las naves espaciales a partir de ficheros GLTF
+    const loader = new GLTFLoader();
+    spaceships = [];
+    let promises = [];
 
-        const asteroid = new THREE.Mesh(asteroidGeometry, asteroidMaterial);
-        asteroid.position.x = Math.random() * 10 - 5; // Posición aleatoria en el rango de -5 a 5 en el eje x
-        asteroid.position.y = Math.random() * 2; // Posición aleatoria en el rango de 0 a 2 en el eje y
-        asteroid.position.z = -(Math.random() * maxZ); // Posición aleatoria en el rango de -maxZ a 0 en el eje z
-        scene.add(asteroid);
-        distantAsteroids.push(asteroid);
+    for (let i = 0; i < 6; i++) {
+        promises.push(new Promise((resolve, reject) => {
+            loader.load('models/naves/spaceship' + i + '.gltf', function (gltf) {
+                const spaceship = gltf.scene;
+                spaceship.position.y = 1;
+                scene.add(spaceship);
+                spaceships[i] = spaceship;
+                resolve();
+            }, undefined, function (error) {
+                console.error(error);
+                reject(error);
+            });
+        }));
     }
 
-    // Añadir a la escena un modelo importado en el centro del pentágono
-    const loader = new GLTFLoader();
-    loader.load('models/naves/sin_nombre.gltf', function (gltf) {
-        spaceship = gltf.scene;
-        spaceship.rotation.x = Math.PI / 2;
-        spaceship.position.y = 1;
-        scene.add(spaceship);
-    }, undefined, function (error) {
-        console.error(error);
+    Promise.all(promises).then(() => {
+        // All models loaded
+        for (let i = 0; i < 6; i++) {
+            spaceships[i].position.z = Math.cos((i / 6) * Math.PI * 2) * 3;
+            spaceships[i].position.x = Math.sin((i / 6) * Math.PI * 2) * 3;
+        }
+        selectedSpaceship = 0;
+        isSelection = true;
+    }).catch(error => {
+        console.error('Error loading models:', error);
     });
 
     // Texturas
     const environmentTexture = new THREE.TextureLoader().load('images/space.jpg');
 
     // Habitación de entorno
-    const roomGeometry = new THREE.SphereGeometry(100, 10, 10);
+    const roomGeometry = new THREE.SphereGeometry(150);
     const roomMaterial = new THREE.MeshBasicMaterial({ map: environmentTexture, side: THREE.BackSide });
-    const room = new THREE.Mesh(roomGeometry, roomMaterial);
+    room = new THREE.Mesh(roomGeometry, roomMaterial);
     scene.add(room);
 
     // Textura de video
@@ -203,23 +224,24 @@ function loadScene() {
     ground.material = floorMaterial; // Aplicar la textura de video al suelo
 }
 
-let isAnimating = false;
 function loadGUI() {
     // Interfaz de usuario
     const gui = new GUI();
 
     // Funcion de disparo de animaciones
-    const animateButton = gui.add({ animate: function () {
-        // Verificar si ya se está reproduciendo una animación
-        if (!isAnimating) {
-            // Animación con Tween
-            const initialRotation = { y: spaceship.rotation.y };
-            const targetRotation = { y: spaceship.rotation.y + Math.PI * 2 };
-            const tween = new TWEEN.Tween(initialRotation)
+    gui.add({ animate: function () {
+        if(isAnimating) return;
+
+        // Iterar sobre cada nave en el array spaceships
+        spaceships.forEach(element => {
+            // Animación con Tween para cada nave
+            const initialRotation = { z: element.rotation.z };
+            const targetRotation = { z: element.rotation.z + Math.PI * 2 };
+            new TWEEN.Tween(initialRotation)
                 .to(targetRotation, 2000)
                 .easing(TWEEN.Easing.Quadratic.InOut)
                 .onUpdate(function () {
-                    spaceship.rotation.y = initialRotation.y;
+                    element.rotation.z = initialRotation.z; // Aplicar la rotación interpolada
                 })
                 .onStart(function () {
                     isAnimating = true;
@@ -227,27 +249,29 @@ function loadGUI() {
                 .onComplete(function () {
                     isAnimating = false;
                 })
-                .start();
-        }
+                .start();});
     }}, 'animate');
 
-    // Slider de control de radio del pentagono
-    gui.add(ground.scale, 'x', 1, 5).name('Radio del pentágono');
+    // Botones de selección de naves
+    const selectShipButtons = document.createElement('div');
+    selectShipButtons.style.position = 'absolute';
+    selectShipButtons.style.bottom = '50px';
+    selectShipButtons.style.left = '50%';
+
+    selectShipButtons.innerHTML = `
+        <button id="prevShipButton">◄</button>
+        <button id="nextShipButton">►</button>
+        <button id="startGameButton">Start</button>
+    `;
+    document.body.appendChild(selectShipButtons);
+
+    // Agregar event listeners a los botones
+    document.getElementById('prevShipButton').addEventListener('click', selectPreviousShip);
+    document.getElementById('nextShipButton').addEventListener('click', selectNextShip);
+    document.getElementById('startGameButton').addEventListener('click', startGame);
 
     // Checkbox para alambrico/solido
     gui.add(ground.material, 'wireframe').name('Alámbrico/Sólido');
-
-    // Checkbox de sombras
-    gui.add({ shadowEnabled: true }, 'shadowEnabled').name('Sombras').onChange(function (value) {
-        // Habilitar/deshabilitar sombras en las luces
-        scene.traverse(function (node) {
-            if (node instanceof THREE.Light) {
-                if (node instanceof THREE.DirectionalLight || node instanceof THREE.SpotLight) {
-                    node.castShadow = value;
-                }
-            }
-        });
-    });
 
     // Boton de play/pause y checkbox de mute
     const videoControls = gui.addFolder('Controles de video');
@@ -256,124 +280,140 @@ function loadGUI() {
     videoControls.add(video, 'muted').name('Mute');
 }
 
-function update(delta) {
+function update() {
     TWEEN.update();
 
-    // Actualizar la posición y la rotación de la nave según las teclas presionadas
-    const movementSpeed = 0.1;
+    if(spaceship) {
+        // Actualizar la posición y la rotación de la nave según las teclas presionadas
+        const movementSpeed = 0.1;
+        let targetRotation = 0;
 
-    // Inicializar la rotación de la nave
-    let targetRotation = 0;
-
-    if (moveLeft) {
-        // Mover la nave hacia la izquierda y rotar hacia la izquierda
-        spaceship.position.x -= movementSpeed;
-        targetRotation = Math.PI / 4; // Angulo de inclinación hacia la izquierda
-    }
-
-    if (moveRight) {
-        // Mover la nave hacia la derecha y rotar hacia la derecha
-        spaceship.position.x += movementSpeed;
-        targetRotation = -Math.PI / 4; // Angulo de inclinación hacia la derecha
-    }
-
-    // Interpolar la rotación actual de la nave hacia la rotación objetivo
-    spaceship.rotation.y = THREE.MathUtils.lerp(spaceship.rotation.y, targetRotation, 0.1);
-
-    // Verificar colisiones con los asteroides lejanos
-    distantAsteroids.forEach(asteroid => {
-        asteroid.position.z += 0.05; // Avance constante hacia la coordenada 0 en el eje z
-
-        // Verificar colisión con la nave
-        if (checkCollisionWithAsteroids(spaceship, asteroid)) {
-            // Mostrar explosión
-            showExplosion(spaceship.position.clone());
-
-            // Remover asteroide
-            scene.remove(asteroid);
-            distantAsteroids.splice(distantAsteroids.indexOf(asteroid), 1);
+        if (moveLeft) {
+            // Mover la nave hacia la izquierda y rotar hacia la izquierda
+            spaceship.position.x -= movementSpeed;
+            targetRotation = Math.PI / 4; // Angulo de inclinación hacia la izquierda
         }
 
-        // Eliminar asteroides que hayan pasado más allá de la coordenada 0
-        if (asteroid.position.z > 10) {
-            scene.remove(asteroid);
-            distantAsteroids.splice(distantAsteroids.indexOf(asteroid), 1);
+        if (moveRight) {
+            // Mover la nave hacia la derecha y rotar hacia la derecha
+            spaceship.position.x += movementSpeed;
+            targetRotation = -Math.PI / 4; // Angulo de inclinación hacia la derecha
         }
-    });
+
+        // Interpolar la rotación actual de la nave hacia la rotación objetivo
+        spaceship.rotation.z = THREE.MathUtils.lerp(spaceship.rotation.z, targetRotation, 0.1);
+
+        // Verificar colisiones con los asteroides lejanos
+        asteroids.forEach(asteroid => {
+            asteroid.position.z += 0.05; // Avance constante hacia la coordenada 0 en el eje z
+
+            // Calcular la distancia entre la nave y el asteroide
+            const distance = spaceship.position.distanceTo(asteroid.position);
+
+            // Sumar los radios de la nave y el asteroide para obtener la distancia mínima permitida para una colisión
+            const minCollisionDistance = 0.5 + asteroid.geometry.parameters.radius;
+
+            // Verificar si hay colisión
+            if (!isExplosion && distance < minCollisionDistance) {
+                // Colisión detectada
+                isExplosion = true
+                explode(asteroid.position);
+                asteroid.visible = false;
+                lifes--;
+                if (lifes === 0) {
+                    alert('Game Over');
+                    location.reload();
+                }
+            }
+
+            // Eliminar asteroides que hayan pasado más allá de la coordenada 0
+            if (asteroid.position.z > 10) {
+                scene.remove(asteroid);
+                asteroids.splice(asteroids.indexOf(asteroid), 1);
+            }
+        });
+    }
 }
 
-// Función para mostrar una explosión en una posición específica
-function showExplosion(position) {
-    console.log("Explosión en", position);
-    // Configurar la geometría y el material de las partículas de la explosión
-    const geometry = new THREE.BufferGeometry();
-    const vertices = [];
-    const particleCount = 100; // Número de partículas en la explosión
-
-    for (let i = 0; i < particleCount; i++) {
-        const x = Math.random() * 0.5 - 0.25;
-        const y = Math.random() * 0.5 - 0.25;
-        const z = Math.random() * 0.5 - 0.25;
-
-        vertices.push(x, y, z);
-    }
-
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-
-    const material = new THREE.PointsMaterial({
-        size: 0.1,
-        color: 0xff0000 // Color de las partículas de la explosión
-    });
-
-    // Crear el objeto de partículas y añadirlo a la escena
-    const explosion = new THREE.Points(geometry, material);
+function explode(position) {
+    // Crear una esfera de explosión
+    const explosionGeometry = new THREE.SphereGeometry(0.5, 10, 10); // Aumentamos el radio de la explosión
+    const explosionMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const explosion = new THREE.Mesh(explosionGeometry, explosionMaterial);
     explosion.position.copy(position);
     scene.add(explosion);
 
-    // Eliminar las partículas después de un tiempo
-    setTimeout(() => {
-        scene.remove(explosion);
-    }, 1000); // Cambia el tiempo de acuerdo a la duración deseada de la explosión
+    // Animar la escala de la explosión
+    new TWEEN.Tween(explosion.scale)
+        .to({ x: 5, y: 5, z: 5 }, 1000)
+        .easing(TWEEN.Easing.Quadratic.Out)
+        .onComplete(() => {
+            // Remover la explosión cuando la animación termine
+            scene.remove(explosion);
+            isExplosion = false;
+        })
+        .start();
 }
 
 
-
-
-function render(delta) {
+function render() {
     requestAnimationFrame(render);
-    update(delta);
+    update();
     renderer.render(scene, camera);
     controls.update();
 
-    // Verificar si spaceship está definido antes de continuar
-    if (spaceship) {
-        asteroids.forEach(asteroid => {
-            // Calcula la posición relativa de los asteroides respecto a la nave
-            const relativePosition = new THREE.Vector3();
-            relativePosition.copy(asteroid.position).sub(spaceship.position);
-
-            // Calcula el ángulo de rotación alrededor de la nave
-            const angle = 0.01;
-
-            // Aplica una rotación a la posición relativa
-            relativePosition.applyAxisAngle(new THREE.Vector3(0, 1, 0), angle);
-
-            // Actualiza la posición del asteroide
-            asteroid.position.copy(relativePosition).add(spaceship.position);
-
-            // Rota el asteroide alrededor de su propio eje
-            asteroid.rotation.x += 0.04;
-            asteroid.rotation.y += 0.03;
-            asteroid.rotation.z += 0.02;
+    if (isSelection) {
+        spaceships.forEach(element => {
+            element.rotation.y += 0.01;
         });
     }
+    room.rotation.y += 0.0001;
     renderer.render(scene, camera);
 }
-
-
 
 function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
+
+function startGame() {
+    spaceship = spaceships[selectedSpaceship];
+    isSelection = false;
+
+    // Colocar la nave seleccionada
+
+    // Animar rotación
+    const targetRotation = new THREE.Quaternion(); // Rotación destino hacia -z
+    targetRotation.setFromAxisAngle(new THREE.Vector3(0, 0, 0), Math.PI); // Rotación hacia -z
+    new TWEEN.Tween(spaceship.rotation)
+        .to({ x: targetRotation.x, y: targetRotation.y, z: targetRotation.z }, 1000) // Duración de la animación en milisegundos
+        .easing(TWEEN.Easing.Quadratic.InOut) // Tipo de interpolación
+        .start(); // Iniciar la animación
+
+    // Animar posición
+    const targetPosition = new THREE.Vector3(0, 1, 0); // Posición destino
+    new TWEEN.Tween(spaceship.position)
+        .to({ x: targetPosition.x, y: targetPosition.y, z: targetPosition.z }, 1000) // Duración de la animación en milisegundos
+        .easing(TWEEN.Easing.Quadratic.InOut) // Tipo de interpolación
+        .start(); // Iniciar la animación
+
+    // Ocultar las demás naves
+    spaceships.forEach(element => {
+        if (element !== spaceship) {
+            element.visible = false;
+        }
+    });
+
+    // Animar posición cámara
+    const targetCameraPosition = new THREE.Vector3(0, 10, 5); // Posición destino
+    new TWEEN.Tween(camera.position)
+        .to({ x: targetCameraPosition.x, y: targetCameraPosition.y, z: targetCameraPosition.z }, 1000) // Duración de la animación en milisegundos
+        .easing(TWEEN.Easing.Quadratic.InOut) // Tipo de interpolación
+        .start(); // Iniciar la animación
+
+    // Limpiar la interfaz
+    const selectShipButtons = document.querySelector('div');
+    selectShipButtons.style.display = 'none';
+}
+
