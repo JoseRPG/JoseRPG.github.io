@@ -10,12 +10,18 @@ let renderer, scene, camera, controls, selectedSpaceship, spaceship, spaceships,
 let moveLeft = false;
 let moveRight = false;
 let asteroids = [];
+let asteroids2 = [];
+let asteroids3 = [];
 let isAnimating = false;
 let isExplosion = false;
 let isSelection = false;
-const numAsteroids = 40;
+let round = 1;
+const numAsteroids = 35;
 const maxZ = 50;
+const spaceshipSpeed = 0.1;
+let asteroidsSpeed = 0.05;
 let lifes = 3;
+const asteroidMaterial = new THREE.MeshLambertMaterial({ map: new THREE.TextureLoader().load('images/asteroid.jpg') });
 // Acciones
 init();
 loadScene();
@@ -155,21 +161,38 @@ function loadScene() {
 
     // Definir geometrías de asteroides
     const asteroidGeometries = [
-        new THREE.SphereGeometry(0.5, 32, 32),
-        new THREE.TetrahedronBufferGeometry(0.5),
+        new THREE.SphereGeometry(0.5, 5, 5),
+        new THREE.SphereGeometry(0.5, 3, 3),
         new THREE.DodecahedronGeometry(0.5)
     ];
-
-    const asteroidMaterial = new THREE.MeshLambertMaterial({ map: new THREE.TextureLoader().load('images/asteroid.jpg') });
     
     for (let i = 0; i < numAsteroids; i++) {
         const asteroidGeometry = asteroidGeometries[i % asteroidGeometries.length];
         const asteroid = new THREE.Mesh(asteroidGeometry, asteroidMaterial);
         asteroid.position.x = Math.random() * 10 - 5; // Posición aleatoria en el rango de -5 a 5 en el eje x
-        asteroid.position.y = Math.random() + 0.5; // Posición aleatoria en el rango de 0.5 a 1.5 en el eje y
-        asteroid.position.z = -(Math.random() * maxZ + 5); // Posición aleatoria en el rango de -maxZ a 0 en el eje z
+        asteroid.position.z = -(Math.random() * maxZ + 10); // Posición aleatoria en el rango de -maxZ a 10 en el eje z
         scene.add(asteroid);
         asteroids.push(asteroid);
+    }
+
+    for (let i = 0; i < numAsteroids/4; i++) {
+        const asteroidGeometry = new THREE.TetrahedronGeometry(0.5);
+        const asteroid = new THREE.Mesh(asteroidGeometry, asteroidMaterial);
+        asteroid.position.x = Math.random() * 10 - 5; // Posición aleatoria en el rango de -5 a 5 en el eje x
+        asteroid.position.z = -(Math.random() * maxZ + 10); // Posición aleatoria en el rango de -maxZ a 10 en el eje z
+        asteroids2.push(asteroid);
+    }
+
+    for (let i = 0; i < numAsteroids/8; i++) {
+        const asteroidGeometry = new THREE.BoxGeometry(0.5);
+        const asteroid = new THREE.Mesh(asteroidGeometry, asteroidMaterial);
+        if (i % 2 === 0) {
+            asteroid.position.x = Math.random() * 5; // Posición aleatoria en el rango de 0 a 5 en el eje x
+        } else {
+            asteroid.position.x = -(Math.random() * 5); // Posición aleatoria en el rango de -5 a 0 en el eje x
+        }
+        asteroid.position.z = -(Math.random() * 15 + 10); // Posición aleatoria en el rango de -20 a -10 en el eje z
+        asteroids3.push(asteroid);
     }
 
     // Añadir a la escena las naves espaciales a partir de ficheros GLTF
@@ -181,7 +204,6 @@ function loadScene() {
         promises.push(new Promise((resolve, reject) => {
             loader.load('models/naves/spaceship' + i + '.gltf', function (gltf) {
                 const spaceship = gltf.scene;
-                spaceship.position.y = 1;
                 scene.add(spaceship);
                 spaceships[i] = spaceship;
                 resolve();
@@ -270,8 +292,24 @@ function loadGUI() {
     document.getElementById('nextShipButton').addEventListener('click', selectNextShip);
     document.getElementById('startGameButton').addEventListener('click', startGame);
 
-    // Checkbox para alambrico/solido
-    gui.add(ground.material, 'wireframe').name('Alámbrico/Sólido');
+    gui.add({ cambiarMaterial: "Sólido"}, 'cambiarMaterial', { Solido: 'solido', Alámbrico: 'alambrico' }).name('Material de los asteroides').onChange(function(value) {
+        // Crear el nuevo material
+        let newMaterial;
+        if (value === 'solido') {
+            newMaterial = asteroidMaterial;
+        } else if (value === 'alambrico') {
+            newMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true });
+        }
+        asteroids.forEach(asteroid => {
+            asteroid.material = newMaterial;
+        });
+        asteroids2.forEach(asteroid => {
+            asteroid.material = newMaterial;
+        });
+        asteroids3.forEach(asteroid => {
+            asteroid.material = newMaterial;
+        });
+    });
 
     // Boton de play/pause y checkbox de mute
     const videoControls = gui.addFolder('Controles de video');
@@ -285,18 +323,17 @@ function update() {
 
     if(spaceship) {
         // Actualizar la posición y la rotación de la nave según las teclas presionadas
-        const movementSpeed = 0.1;
         let targetRotation = 0;
 
-        if (moveLeft) {
+        if (moveLeft && spaceship.position.x > -6) {
             // Mover la nave hacia la izquierda y rotar hacia la izquierda
-            spaceship.position.x -= movementSpeed;
+            spaceship.position.x -= spaceshipSpeed;
             targetRotation = Math.PI / 4; // Angulo de inclinación hacia la izquierda
         }
 
-        if (moveRight) {
+        if (moveRight && spaceship.position.x < 6) {
             // Mover la nave hacia la derecha y rotar hacia la derecha
-            spaceship.position.x += movementSpeed;
+            spaceship.position.x += spaceshipSpeed;
             targetRotation = -Math.PI / 4; // Angulo de inclinación hacia la derecha
         }
 
@@ -305,20 +342,20 @@ function update() {
 
         // Verificar colisiones con los asteroides lejanos
         asteroids.forEach(asteroid => {
-            asteroid.position.z += 0.05; // Avance constante hacia la coordenada 0 en el eje z
+            asteroid.position.z += asteroidsSpeed; // Avance constante hacia la coordenada 0 en el eje z
 
             // Calcular la distancia entre la nave y el asteroide
             const distance = spaceship.position.distanceTo(asteroid.position);
 
-            // Sumar los radios de la nave y el asteroide para obtener la distancia mínima permitida para una colisión
-            const minCollisionDistance = 0.5 + asteroid.geometry.parameters.radius;
+            const minCollisionDistance = 1;
 
             // Verificar si hay colisión
             if (!isExplosion && distance < minCollisionDistance) {
                 // Colisión detectada
                 isExplosion = true
                 explode(asteroid.position);
-                asteroid.visible = false;
+                asteroids.splice(asteroids.indexOf(asteroid), 1);
+                scene.remove(asteroid);
                 lifes--;
                 if (lifes === 0) {
                     alert('Game Over');
@@ -326,13 +363,89 @@ function update() {
                 }
             }
 
-            // Eliminar asteroides que hayan pasado más allá de la coordenada 0
+            // Eliminar asteroides que hayan pasado más allá de la coordenada 10
             if (asteroid.position.z > 10) {
-                scene.remove(asteroid);
-                asteroids.splice(asteroids.indexOf(asteroid), 1);
+                asteroid.position.z = -(Math.random() * maxZ + 20); // Reiniciar la posición del asteroide
             }
         });
+
+        if (round > 1) {
+            // Verificar colisiones con los asteroides lejanos
+            asteroids2.forEach(asteroid => {
+            asteroid.position.z += asteroidsSpeed * 2; // Avance constante hacia la coordenada 0 en el eje z
+
+            // Calcular la distancia entre la nave y el asteroide
+            const distance = spaceship.position.distanceTo(asteroid.position);
+
+            const minCollisionDistance = 1;
+
+            // Verificar si hay colisión
+            if (!isExplosion && distance < minCollisionDistance) {
+                // Colisión detectada
+                isExplosion = true
+                explode(asteroid.position);
+                asteroids.splice(asteroids2.indexOf(asteroid), 1);
+                scene.remove(asteroid);
+                lifes--;
+                if (lifes === 0) {
+                    alert('Game Over');
+                    location.reload();
+                }
+            }
+
+            // Eliminar asteroides que hayan pasado más allá de la coordenada 10
+            if (asteroid.position.z > 10) {
+                asteroid.position.z = -(Math.random() * maxZ + 20); // Reiniciar la posición del asteroide
+            }
+        });
+        }
+
+        if (round > 2) {
+             // Verificar colisiones con los asteroides lejanos
+                asteroids3.forEach((asteroid, index) => {
+                asteroid.position.z += asteroidsSpeed/2; // Avance constante hacia la coordenada 0 en el eje z
+                if (index % 2 === 0) {
+                    asteroid.position.x -= 0.01;
+                } else {
+                    asteroid.position.x += 0.01;
+                }
+    
+                // Calcular la distancia entre la nave y el asteroide
+                const distance = spaceship.position.distanceTo(asteroid.position);
+                const minCollisionDistance = 1;
+    
+                // Verificar si hay colisión
+                if (!isExplosion && distance < minCollisionDistance) {
+                    // Colisión detectada
+                    isExplosion = true
+                    explode(asteroid.position);
+                    asteroids.splice(asteroids3.indexOf(asteroid), 1);
+                    scene.remove(asteroid);
+                    lifes--;
+                    if (lifes === 0) {
+                        alert('Game Over');
+                        location.reload();
+                    }
+                }
+    
+                // Eliminar asteroides que hayan pasado más allá de la coordenada 10
+                if (asteroid.position.z > 10) {
+                    asteroid.position.z = -(Math.random() * 15 + 10);
+                    if (index % 2 === 0) {
+                        asteroid.position.x = Math.random() * 5; // Posición aleatoria en el rango de 0 a 5 en el eje x
+                    } else {
+                        asteroid.position.x = -(Math.random() * 5); // Posición aleatoria en el rango de -5 a 0 en el eje x
+                    }
+                }
+            });
+        }
+            
+        
     }
+}
+
+function increaseAsteroidSpeed() {
+    asteroidsSpeed += 0.005; // Aumentar la velocidad de los asteroides en 0.1
 }
 
 function explode(position) {
@@ -345,7 +458,7 @@ function explode(position) {
 
     // Animar la escala de la explosión
     new TWEEN.Tween(explosion.scale)
-        .to({ x: 5, y: 5, z: 5 }, 1000)
+        .to({ x: 5, y: 5, z: 5 }, 500)
         .easing(TWEEN.Easing.Quadratic.Out)
         .onComplete(() => {
             // Remover la explosión cuando la animación termine
@@ -366,6 +479,25 @@ function render() {
         spaceships.forEach(element => {
             element.rotation.y += 0.01;
         });
+    } else {
+        asteroids.forEach((element, index) => {
+            if (index % 4 === 0) {
+                element.rotation.x += 0.01;
+            } else if (index % 4 === 1) {
+                element.rotation.x -= 0.01;
+                element.rotation.y -= 0.01;
+            } else if (index % 4 === 2) {
+                element.rotation.z += 0.01;
+                element.rotation.y -= 0.01;
+            } else {
+                element.rotation.x += 0.01;
+                element.rotation.y += 0.01;
+                element.rotation.z += 0.01;
+            }
+        });
+
+        asteroids2.forEach(element => element.rotation.x += 0.05);
+        asteroids3.forEach(element => element.rotation.y += 0.005);
     }
     room.rotation.y += 0.0001;
     renderer.render(scene, camera);
@@ -375,6 +507,20 @@ function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function addNewAsteroids() {
+    asteroids2.forEach(asteroid => {
+        scene.add(asteroid);
+    });
+    round = 2;
+}
+
+function addLastAsteroids() {
+    asteroids3.forEach(asteroid => {
+        scene.add(asteroid);
+    });
+    round = 3;
 }
 
 function startGame() {
@@ -392,7 +538,7 @@ function startGame() {
         .start(); // Iniciar la animación
 
     // Animar posición
-    const targetPosition = new THREE.Vector3(0, 1, 0); // Posición destino
+    const targetPosition = new THREE.Vector3(0, 0, 0); // Posición destino
     new TWEEN.Tween(spaceship.position)
         .to({ x: targetPosition.x, y: targetPosition.y, z: targetPosition.z }, 1000) // Duración de la animación en milisegundos
         .easing(TWEEN.Easing.Quadratic.InOut) // Tipo de interpolación
@@ -415,5 +561,8 @@ function startGame() {
     // Limpiar la interfaz
     const selectShipButtons = document.querySelector('div');
     selectShipButtons.style.display = 'none';
-}
 
+    setInterval(increaseAsteroidSpeed, 3000); // Aumentar la velocidad de los asteroides cada 10 segundos
+    setTimeout(addNewAsteroids, 20000); // Añadir segunda oleada asteroides
+    setTimeout(addLastAsteroids, 40000); // Añadir tercera oleada asteroides
+}
